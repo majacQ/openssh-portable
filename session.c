@@ -1154,12 +1154,14 @@ do_setup_env(struct ssh *ssh, Session *s, const char *shell)
 	/* Environment specified by admin */
 	for (i = 0; i < options.num_setenv; i++) {
 		cp = xstrdup(options.setenv[i]);
+		/* coverity[overwrite_var : FALSE] */
 		if ((value = strchr(cp, '=')) == NULL) {
 			/* shouldn't happen; vars are checked in servconf.c */
 			fatal("Invalid config SetEnv: %s", options.setenv[i]);
 		}
 		*value++ = '\0';
 		child_set_env(&env, &envsize, cp, value);
+		free(cp);
 	}
 
 	/* SSH_CLIENT deprecated */

@@ -312,8 +312,10 @@ addr_pton(const char *p, struct xaddr *n)
 	if (p == NULL || getaddrinfo(p, NULL, &hints, &ai) != 0)
 		return -1;
 
-	if (ai == NULL || ai->ai_addr == NULL)
+	if (ai == NULL || ai->ai_addr == NULL) {
+		freeaddrinfo(ai);
 		return -1;
+	}
 
 	if (n != NULL && addr_sa_to_xaddr(ai->ai_addr, ai->ai_addrlen,
 	    n) == -1) {
@@ -336,12 +338,16 @@ addr_sa_pton(const char *h, const char *s, struct sockaddr *sa, socklen_t slen)
 	if (h == NULL || getaddrinfo(h, s, &hints, &ai) != 0)
 		return -1;
 
-	if (ai == NULL || ai->ai_addr == NULL)
+	if (ai == NULL || ai->ai_addr == NULL) {
+		freeaddrinfo(ai);
 		return -1;
+	}
 
 	if (sa != NULL) {
-		if (slen < ai->ai_addrlen)
+		if (slen < ai->ai_addrlen) {
+			freeaddrinfo(ai);
 			return -1;
+		}
 		memcpy(sa, &ai->ai_addr, ai->ai_addrlen);
 	}
 

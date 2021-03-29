@@ -1392,8 +1392,8 @@ main(int ac, char **av)
 	sanitise_stdfd();
 
 	/* drop */
-	setegid(getgid());
-	setgid(getgid());
+	(void) setegid(getgid());
+	(void) setgid(getgid());
 
 	platform_disable_tracing(0);	/* strict=no */
 

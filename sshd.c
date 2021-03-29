@@ -531,8 +531,10 @@ privsep_preauth(struct ssh *ssh)
 
 		privsep_preauth_child();
 		setproctitle("%s", "[net]");
-		if (box != NULL)
+		if (box != NULL) {
 			ssh_sandbox_child(box);
+			free(box);
+		}
 
 		return 0;
 	}
@@ -1370,6 +1372,9 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 			explicit_bzero(rnd, sizeof(rnd));
 		}
 	}
+
+	if (fdset != NULL)
+		free(fdset);
 }
 
 /*
@@ -2366,7 +2371,7 @@ do_ssh2_kex(struct ssh *ssh)
 	if (options.rekey_limit || options.rekey_interval)
 		ssh_packet_set_rekey_limits(ssh, options.rekey_limit,
 		    options.rekey_interval);
-
+	/* coverity[leaked_storage : FALSE]*/
 	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = compat_pkalg_proposal(
 	    ssh, list_hostkey_types());
 

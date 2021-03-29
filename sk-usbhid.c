@@ -1256,6 +1256,7 @@ sk_load_resident_keys(const char *pin, struct sk_option **options,
 		freezero(rks[i], sizeof(*rks[i]));
 	}
 	free(rks);
+	free(device);
 	return ret;
 }
 

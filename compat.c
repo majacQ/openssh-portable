@@ -190,10 +190,12 @@ compat_kex_proposal(struct ssh *ssh, char *p)
 		return p;
 	debug2_f("original KEX proposal: %s", p);
 	if ((ssh->compat & SSH_BUG_CURVE25519PAD) != 0)
+		/* coverity[overwrite_var : FALSE] */
 		if ((p = match_filter_denylist(p,
 		    "curve25519-sha256@libssh.org")) == NULL)
 			fatal("match_filter_denylist failed");
 	if ((ssh->compat & SSH_OLD_DHGEX) != 0) {
+		/* coverity[overwrite_var : FALSE] */
 		if ((p = match_filter_denylist(p,
 		    "diffie-hellman-group-exchange-sha256,"
 		    "diffie-hellman-group-exchange-sha1")) == NULL)

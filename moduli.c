@@ -476,6 +476,7 @@ write_checkpoint(char *cpfile, u_int32_t lineno)
 	else
 		logit("failed to write to checkpoint file '%s': %s", cpfile,
 		    strerror(errno));
+	/* coverity[leaked_storage : FALSE] */
 }
 
 static unsigned long

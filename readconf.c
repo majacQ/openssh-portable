@@ -1800,6 +1800,7 @@ parse_pubkey_algos:
 			} else if (r != 0) {
 				error("%.200s line %d: glob failed for %s.",
 				    filename, linenum, arg2);
+				free(arg2);
 				return -1;
 			}
 			free(arg2);

@@ -2315,6 +2315,9 @@ update_krl_from_file(struct passwd *pw, const char *file, int wild_ca,
 			r = ssh_krl_revoke_key_sha256(krl, blob, blen);
 			if (r != 0)
 				fatal_fr(r, "revoke key failed");
+			freezero(blob, blen);
+			blob = NULL;
+			blen = 0;
 		} else {
 			if (strncasecmp(cp, "key:", 4) == 0) {
 				cp += 4;
@@ -2862,6 +2865,7 @@ do_moduli_screen(const char *out_file, char **opts, size_t nopts)
 		} else if (strncmp(opts[i], "start-line=", 11) == 0) {
 			start_lineno = strtoul(opts[i]+11, NULL, 10);
 		} else if (strncmp(opts[i], "checkpoint=", 11) == 0) {
+			free(checkpoint);
 			checkpoint = xstrdup(opts[i]+11);
 		} else if (strncmp(opts[i], "generator=", 10) == 0) {
 			generator_wanted = (u_int32_t)strtonum(
@@ -2903,6 +2907,9 @@ do_moduli_screen(const char *out_file, char **opts, size_t nopts)
 #else /* WITH_OPENSSL */
 	fatal("Moduli screening is not supported");
 #endif /* WITH_OPENSSL */
+	free(checkpoint);
+	if (in != stdin)
+		fclose(in);
 }
 
 static char *

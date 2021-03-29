@@ -1730,6 +1730,7 @@ control_persist_detach(void)
 		close(muxserver_sock);
 		muxserver_sock = -1;
 		options.control_master = SSHCTL_MASTER_NO;
+		/* coverity[leaked_handle: FALSE]*/
 		muxclient(options.control_path);
 		/* muxclient() doesn't return on success. */
 		fatal("Failed to connect to new control master");

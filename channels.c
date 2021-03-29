@@ -334,11 +334,11 @@ channel_register_fds(struct ssh *ssh, Channel *c, int rfd, int wfd, int efd,
 
 	/* enable nonblocking mode */
 	if (nonblock) {
-		if (rfd != -1)
+		if (rfd >= 0)
 			set_nonblock(rfd);
-		if (wfd != -1)
+		if (wfd >= 0)
 			set_nonblock(wfd);
-		if (efd != -1)
+		if (efd >= 0)
 			set_nonblock(efd);
 	}
 }
@@ -1875,7 +1875,7 @@ channel_post_connecting(struct ssh *ssh, Channel *c,
 		debug("channel %d: connection failed: %s",
 		    c->self, strerror(err));
 		/* Try next address, if any */
-		if ((sock = connect_next(&c->connect_ctx)) > 0) {
+		if ((sock = connect_next(&c->connect_ctx)) >= 0) {
 			close(c->sock);
 			c->sock = c->rfd = c->wfd = sock;
 			channel_find_maxfd(ssh->chanctxt);
@@ -3804,7 +3804,7 @@ int
 channel_request_remote_forwarding(struct ssh *ssh, struct Forward *fwd)
 {
 	int r, success = 0, idx = -1;
-	char *host_to_connect, *listen_host, *listen_path;
+	char *host_to_connect = NULL, *listen_host = NULL, *listen_path = NULL;
 	int port_to_connect, listen_port;
 
 	/* Send the forward request to the remote side. */
@@ -3832,7 +3832,6 @@ channel_request_remote_forwarding(struct ssh *ssh, struct Forward *fwd)
 	success = 1;
 	if (success) {
 		/* Record that connection to this host/port is permitted. */
-		host_to_connect = listen_host = listen_path = NULL;
 		port_to_connect = listen_port = 0;
 		if (fwd->connect_path != NULL) {
 			host_to_connect = xstrdup(fwd->connect_path);
@@ -3853,6 +3852,9 @@ channel_request_remote_forwarding(struct ssh *ssh, struct Forward *fwd)
 		    host_to_connect, port_to_connect,
 		    listen_host, listen_path, listen_port, NULL);
 	}
+	free(host_to_connect);
+	free(listen_host);
+	free(listen_path);
 	return idx;
 }
 

@@ -225,7 +225,7 @@ killchild(int signo)
 	pid = sshpid;
 	if (pid > 1) {
 		kill(pid, SIGTERM);
-		waitpid(pid, NULL, 0);
+		(void) waitpid(pid, NULL, 0);
 	}
 
 	_exit(1);
@@ -762,6 +762,8 @@ process_put(struct sftp_conn *conn, const char *src, const char *dst,
 			    fflag || global_fflag) == -1)
 				err = -1;
 		}
+		free(abs_dst);
+		abs_dst = NULL;
 	}
 
 out:
@@ -985,6 +987,7 @@ do_globbed_ls(struct sftp_conn *conn, const char *path,
 		if (lflag & LS_LONG_VIEW) {
 			if (g.gl_statv[i] == NULL) {
 				error("no stat information for %s", fname);
+				free(fname);
 				continue;
 			}
 			lname = ls_file(fname, g.gl_statv[i], 1,

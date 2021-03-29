@@ -690,9 +690,11 @@ construct_utmp(struct logininfo *li,
 	 */
 
 	/* Use strncpy because we don't necessarily want null termination */
+	/* coverity[buffer_size_warning : FALSE] */
 	strncpy(ut->ut_name, li->username,
 	    MIN_SIZEOF(ut->ut_name, li->username));
 # ifdef HAVE_HOST_IN_UTMP
+	/* coverity[buffer_size_warning : FALSE] */
 	strncpy(ut->ut_host, li->hostname,
 	    MIN_SIZEOF(ut->ut_host, li->hostname));
 # endif
@@ -1690,6 +1692,7 @@ record_failed_login(struct ssh *ssh, const char *username, const char *hostname,
 
 	memset(&ut, 0, sizeof(ut));
 	/* strncpy because we don't necessarily want nul termination */
+	/* coverity[buffer_size_warning : FALSE] */
 	strncpy(ut.ut_user, username, sizeof(ut.ut_user));
 	strlcpy(ut.ut_line, "ssh:notty", sizeof(ut.ut_line));
 
@@ -1699,6 +1702,7 @@ record_failed_login(struct ssh *ssh, const char *username, const char *hostname,
 	ut.ut_pid = getpid();
 
 	/* strncpy because we don't necessarily want nul termination */
+	/* coverity[buffer_size_warning : FALSE] */
 	strncpy(ut.ut_host, hostname, sizeof(ut.ut_host));
 
 	if (ssh_packet_connection_is_on_socket(ssh) &&
