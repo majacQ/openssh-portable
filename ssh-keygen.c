@@ -2904,12 +2904,12 @@ do_moduli_screen(const char *out_file, char **opts, size_t nopts)
 	    generator_wanted, checkpoint,
 	    start_lineno, lines_to_process) != 0)
 		fatal("modulus screening failed");
-#else /* WITH_OPENSSL */
-	fatal("Moduli screening is not supported");
-#endif /* WITH_OPENSSL */
 	free(checkpoint);
 	if (in != stdin)
 		fclose(in);
+#else /* WITH_OPENSSL */
+	fatal("Moduli screening is not supported");
+#endif /* WITH_OPENSSL */
 }
 
 static char *
