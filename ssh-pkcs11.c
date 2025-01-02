@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-pkcs11.c,v 1.52 2020/11/22 22:38:26 djm Exp $ */
+/* $OpenBSD: ssh-pkcs11.c,v 1.64 2024/09/20 02:00:46 jsg Exp $ */
 /*
  * Copyright (c) 2010 Markus Friedl.  All rights reserved.
  * Copyright (c) 2014 Pedro Martelletto. All rights reserved.
@@ -79,7 +79,7 @@ struct pkcs11_key {
 
 int pkcs11_interactive = 0;
 
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 static void
 ossl_error(const char *msg)
 {
@@ -89,7 +89,7 @@ ossl_error(const char *msg)
 	while ((e = ERR_get_error()) != 0)
 		error_f("libcrypto error: %s", ERR_error_string(e, NULL));
 }
-#endif /* HAVE_EC_KEY_METHOD_NEW */
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 
 int
 pkcs11_init(int interactive)
@@ -111,8 +111,8 @@ pkcs11_provider_finalize(struct pkcs11_provider *p)
 	CK_RV rv;
 	CK_ULONG i;
 
-	debug("pkcs11_provider_finalize: %p refcount %d valid %d",
-	    p, p->refcount, p->valid);
+	debug_f("provider \"%s\" refcount %d valid %d",
+	    p->name, p->refcount, p->valid);
 	if (!p->valid)
 		return;
 	for (i = 0; i < p->nslots; i++) {
@@ -135,10 +135,10 @@ pkcs11_provider_finalize(struct pkcs11_provider *p)
 static void
 pkcs11_provider_unref(struct pkcs11_provider *p)
 {
-	debug("pkcs11_provider_unref: %p refcount %d", p, p->refcount);
+	debug_f("provider \"%s\" refcount %d", p->name, p->refcount);
 	if (--p->refcount <= 0) {
 		if (p->valid)
-			error("pkcs11_provider_unref: %p still valid", p);
+			error_f("provider \"%s\" still valid", p->name);
 		free(p->name);
 		free(p->slotlist);
 		free(p->slotinfo);
@@ -166,7 +166,7 @@ pkcs11_provider_lookup(char *provider_id)
 	struct pkcs11_provider *p;
 
 	TAILQ_FOREACH(p, &pkcs11_providers, next) {
-		debug("check %p %s", p, p->name);
+		debug("check provider \"%s\"", p->name);
 		if (!strcmp(provider_id, p->name))
 			return (p);
 	}
@@ -190,10 +190,10 @@ pkcs11_del_provider(char *provider_id)
 
 static RSA_METHOD *rsa_method;
 static int rsa_idx = 0;
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 static EC_KEY_METHOD *ec_key_method;
 static int ec_key_idx = 0;
-#endif
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 
 /* release a wrapped object */
 static void
@@ -337,8 +337,8 @@ pkcs11_check_obj_bool_attrib(struct pkcs11_key *k11, CK_OBJECT_HANDLE obj,
 		return (-1);
 	}
 	*val = flag != 0;
-	debug_f("provider %p slot %lu object %lu: attrib %lu = %d",
-	    k11->provider, k11->slotidx, obj, type, *val);
+	debug_f("provider \"%s\" slot %lu object %lu: attrib %lu = %d",
+	    k11->provider->name, k11->slotidx, obj, type, *val);
 	return (0);
 }
 
@@ -430,7 +430,7 @@ pkcs11_rsa_private_encrypt(int flen, const u_char *from, u_char *to, RSA *rsa,
 	int			rval = -1;
 
 	if ((k11 = RSA_get_ex_data(rsa, rsa_idx)) == NULL) {
-		error("RSA_get_ex_data failed for rsa %p", rsa);
+		error("RSA_get_ex_data failed");
 		return (-1);
 	}
 
@@ -502,12 +502,14 @@ pkcs11_rsa_wrap(struct pkcs11_provider *provider, CK_ULONG slotidx,
 		memcpy(k11->keyid, keyid_attrib->pValue, k11->keyid_len);
 	}
 
-	RSA_set_method(rsa, rsa_method);
-	RSA_set_ex_data(rsa, rsa_idx, k11);
+	if (RSA_set_method(rsa, rsa_method) != 1)
+		fatal_f("RSA_set_method failed");
+	if (RSA_set_ex_data(rsa, rsa_idx, k11) != 1)
+		fatal_f("RSA_set_ex_data failed");
 	return (0);
 }
 
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 /* openssl callback doing the actual signing operation */
 static ECDSA_SIG *
 ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
@@ -523,7 +525,7 @@ ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
 	BIGNUM			*r = NULL, *s = NULL;
 
 	if ((k11 = EC_KEY_get_ex_data(ec, ec_key_idx)) == NULL) {
-		ossl_error("EC_KEY_get_key_method_data failed for ec");
+		ossl_error("EC_KEY_get_ex_data failed for ec");
 		return (NULL);
 	}
 
@@ -545,7 +547,7 @@ ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
 		goto done;
 	}
 	if (siglen < 64 || siglen > 132 || siglen % 2) {
-		ossl_error("d2i_ECDSA_SIG failed");
+		error_f("bad signature length: %lu", (u_long)siglen);
 		goto done;
 	}
 	bnlen = siglen/2;
@@ -555,7 +557,7 @@ ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
 	}
 	if ((r = BN_bin2bn(sig, bnlen, NULL)) == NULL ||
 	    (s = BN_bin2bn(sig+bnlen, bnlen, NULL)) == NULL) {
-		ossl_error("d2i_ECDSA_SIG failed");
+		ossl_error("BN_bin2bn failed");
 		ECDSA_SIG_free(ret);
 		ret = NULL;
 		goto done;
@@ -611,30 +613,36 @@ pkcs11_ecdsa_wrap(struct pkcs11_provider *provider, CK_ULONG slotidx,
 	k11->slotidx = slotidx;
 	/* identify key object on smartcard */
 	k11->keyid_len = keyid_attrib->ulValueLen;
-	k11->keyid = xmalloc(k11->keyid_len);
-	memcpy(k11->keyid, keyid_attrib->pValue, k11->keyid_len);
-
-	EC_KEY_set_method(ec, ec_key_method);
-	EC_KEY_set_ex_data(ec, ec_key_idx, k11);
+	if (k11->keyid_len > 0) {
+		k11->keyid = xmalloc(k11->keyid_len);
+		memcpy(k11->keyid, keyid_attrib->pValue, k11->keyid_len);
+	}
+	if (EC_KEY_set_method(ec, ec_key_method) != 1)
+		fatal_f("EC_KEY_set_method failed");
+	if (EC_KEY_set_ex_data(ec, ec_key_idx, k11) != 1)
+		fatal_f("EC_KEY_set_ex_data failed");
 
 	return (0);
 }
-#endif /* HAVE_EC_KEY_METHOD_NEW */
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 
 /* remove trailing spaces */
-static void
+static char *
 rmspace(u_char *buf, size_t len)
 {
 	size_t i;
 
-	if (!len)
-		return;
-	for (i = len - 1;  i > 0; i--)
-		if (i == len - 1 || buf[i] == ' ')
+	if (len == 0)
+		return buf;
+	for (i = len - 1; i > 0; i--)
+		if (buf[i] == ' ')
 			buf[i] = '\0';
 		else
 			break;
+	return buf;
 }
+/* Used to printf fixed-width, space-padded, unterminated strings using %.*s */
+#define RMSPACE(s) (int)sizeof(s), rmspace(s, sizeof(s))
 
 /*
  * open a pkcs11 session and login if required.
@@ -694,7 +702,7 @@ pkcs11_key_included(struct sshkey ***keysp, int *nkeys, struct sshkey *key)
 	return (0);
 }
 
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 static struct sshkey *
 pkcs11_fetch_ecdsa_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
     CK_OBJECT_HANDLE *obj)
@@ -799,11 +807,14 @@ pkcs11_fetch_ecdsa_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 		goto fail;
 	}
 
-	key->ecdsa = ec;
+	EVP_PKEY_free(key->pkey);
+	if ((key->pkey = EVP_PKEY_new()) == NULL)
+		fatal("EVP_PKEY_new failed");
+	if (EVP_PKEY_set1_EC_KEY(key->pkey, ec) != 1)
+		fatal("EVP_PKEY_set1_EC_KEY failed");
 	key->ecdsa_nid = nid;
 	key->type = KEY_ECDSA;
 	key->flags |= SSHKEY_FLAG_EXT;
-	ec = NULL;	/* now owned by key */
 
 fail:
 	for (i = 0; i < 3; i++)
@@ -817,7 +828,7 @@ fail:
 
 	return (key);
 }
-#endif /* HAVE_EC_KEY_METHOD_NEW */
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 
 static struct sshkey *
 pkcs11_fetch_rsa_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
@@ -895,10 +906,13 @@ pkcs11_fetch_rsa_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 		goto fail;
 	}
 
-	key->rsa = rsa;
+	EVP_PKEY_free(key->pkey);
+	if ((key->pkey = EVP_PKEY_new()) == NULL)
+		fatal("EVP_PKEY_new failed");
+	if (EVP_PKEY_set1_RSA(key->pkey, rsa) != 1)
+		fatal("EVP_PKEY_set1_RSA failed");
 	key->type = KEY_RSA;
 	key->flags |= SSHKEY_FLAG_EXT;
-	rsa = NULL;	/* now owned by key */
 
 fail:
 	for (i = 0; i < 3; i++)
@@ -925,7 +939,7 @@ pkcs11_fetch_x509_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 #endif
 	struct sshkey		*key = NULL;
 	int			 i;
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 	int			 nid;
 #endif
 	const u_char		*cp;
@@ -973,7 +987,7 @@ pkcs11_fetch_x509_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 	}
 
 	/* Decode DER-encoded cert subject */
-	cp = cert_attr[2].pValue;
+	cp = cert_attr[1].pValue;
 	if ((x509_name = d2i_X509_NAME(NULL, &cp,
 	    cert_attr[1].ulValueLen)) == NULL ||
 	    (subject = X509_NAME_oneline(x509_name, NULL, 0)) == NULL)
@@ -1010,11 +1024,14 @@ pkcs11_fetch_x509_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 			goto out;
 		}
 
-		key->rsa = rsa;
+		EVP_PKEY_free(key->pkey);
+		if ((key->pkey = EVP_PKEY_new()) == NULL)
+			fatal("EVP_PKEY_new failed");
+		if (EVP_PKEY_set1_RSA(key->pkey, rsa) != 1)
+			fatal("EVP_PKEY_set1_RSA failed");
 		key->type = KEY_RSA;
 		key->flags |= SSHKEY_FLAG_EXT;
-		rsa = NULL;	/* now owned by key */
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 	} else if (EVP_PKEY_base_id(evp) == EVP_PKEY_EC) {
 		if (EVP_PKEY_get0_EC_KEY(evp) == NULL) {
 			error("invalid x509; no ec key");
@@ -1040,12 +1057,15 @@ pkcs11_fetch_x509_pubkey(struct pkcs11_provider *p, CK_ULONG slotidx,
 			goto out;
 		}
 
-		key->ecdsa = ec;
+		EVP_PKEY_free(key->pkey);
+		if ((key->pkey = EVP_PKEY_new()) == NULL)
+			fatal("EVP_PKEY_new failed");
+		if (EVP_PKEY_set1_EC_KEY(key->pkey, ec) != 1)
+			fatal("EVP_PKEY_set1_EC_KEY failed");
 		key->ecdsa_nid = nid;
 		key->type = KEY_ECDSA;
 		key->flags |= SSHKEY_FLAG_EXT;
-		ec = NULL;	/* now owned by key */
-#endif /* HAVE_EC_KEY_METHOD_NEW */
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 	} else {
 		error("unknown certificate key type");
 		goto out;
@@ -1172,7 +1192,7 @@ pkcs11_fetch_certs(struct pkcs11_provider *p, CK_ULONG slotidx,
 		}
 		note_key(p, slotidx, __func__, key);
 		if (pkcs11_key_included(keysp, nkeys, key)) {
-			debug2_f("key already included");;
+			debug2_f("key already included");
 			sshkey_free(key);
 		} else {
 			/* expand key array and add key */
@@ -1269,11 +1289,11 @@ pkcs11_fetch_keys(struct pkcs11_provider *p, CK_ULONG slotidx,
 		case CKK_RSA:
 			key = pkcs11_fetch_rsa_pubkey(p, slotidx, &obj);
 			break;
-#ifdef HAVE_EC_KEY_METHOD_NEW
+#if defined(OPENSSL_HAS_ECC) && defined(HAVE_EC_KEY_METHOD_NEW)
 		case CKK_ECDSA:
 			key = pkcs11_fetch_ecdsa_pubkey(p, slotidx, &obj);
 			break;
-#endif /* HAVE_EC_KEY_METHOD_NEW */
+#endif /* OPENSSL_HAS_ECC && HAVE_EC_KEY_METHOD_NEW */
 		default:
 			/* XXX print key type? */
 			key = NULL;
@@ -1286,7 +1306,7 @@ pkcs11_fetch_keys(struct pkcs11_provider *p, CK_ULONG slotidx,
 		}
 		note_key(p, slotidx, __func__, key);
 		if (pkcs11_key_included(keysp, nkeys, key)) {
-			debug2_f("key already included");;
+			debug2_f("key already included");
 			sshkey_free(key);
 		} else {
 			/* expand key array and add key */
@@ -1382,10 +1402,22 @@ pkcs11_rsa_generate_private_key(struct pkcs11_provider *p, CK_ULONG slotidx,
 }
 
 static int
+h2i(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	else if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	else if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	else
+		return -1;
+}
+
+static int
 pkcs11_decode_hex(const char *hex, unsigned char **dest, size_t *rlen)
 {
 	size_t	i, len;
-	char	ptr[3];
 
 	if (dest)
 		*dest = NULL;
@@ -1398,13 +1430,14 @@ pkcs11_decode_hex(const char *hex, unsigned char **dest, size_t *rlen)
 
 	*dest = xmalloc(len);
 
-	ptr[2] = '\0';
 	for (i = 0; i < len; i++) {
-		ptr[0] = hex[2 * i];
-		ptr[1] = hex[(2 * i) + 1];
-		if (!isxdigit(ptr[0]) || !isxdigit(ptr[1]))
+		int hi, low;
+
+		hi = h2i(hex[2 * i]);
+		lo = h2i(hex[(2 * i) + 1]);
+		if (hi == -1 || lo == -1)
 			return -1;
-		(*dest)[i] = (unsigned char)strtoul(ptr, NULL, 16);
+		(*dest)[i] = (hi << 4) | lo;
 	}
 
 	if (rlen)
@@ -1531,15 +1564,17 @@ pkcs11_register_provider(char *provider_id, char *pin,
 		debug_f("provider already registered: %s", provider_id);
 		goto fail;
 	}
+	if (lib_contains_symbol(provider_id, "C_GetFunctionList") != 0) {
+		error("provider %s is not a PKCS11 library", provider_id);
+		goto fail;
+	}
 	/* open shared pkcs11-library */
 	if ((handle = dlopen(provider_id, RTLD_NOW)) == NULL) {
 		error("dlopen %s failed: %s", provider_id, dlerror());
 		goto fail;
 	}
-	if ((getfunctionlist = dlsym(handle, "C_GetFunctionList")) == NULL) {
-		error("dlsym(C_GetFunctionList) failed: %s", dlerror());
-		goto fail;
-	}
+	if ((getfunctionlist = dlsym(handle, "C_GetFunctionList")) == NULL)
+		fatal("dlsym(C_GetFunctionList) failed: %s", dlerror());
 	p = xcalloc(1, sizeof(*p));
 	p->name = xstrdup(provider_id);
 	p->handle = handle;
@@ -1561,15 +1596,13 @@ pkcs11_register_provider(char *provider_id, char *pin,
 		    provider_id, rv);
 		goto fail;
 	}
-	rmspace(p->info.manufacturerID, sizeof(p->info.manufacturerID));
-	rmspace(p->info.libraryDescription, sizeof(p->info.libraryDescription));
-	debug("provider %s: manufacturerID <%s> cryptokiVersion %d.%d"
-	    " libraryDescription <%s> libraryVersion %d.%d",
+	debug("provider %s: manufacturerID <%.*s> cryptokiVersion %d.%d"
+	    " libraryDescription <%.*s> libraryVersion %d.%d",
 	    provider_id,
-	    p->info.manufacturerID,
+	    RMSPACE(p->info.manufacturerID),
 	    p->info.cryptokiVersion.major,
 	    p->info.cryptokiVersion.minor,
-	    p->info.libraryDescription,
+	    RMSPACE(p->info.libraryDescription),
 	    p->info.libraryVersion.major,
 	    p->info.libraryVersion.minor);
 	if ((rv = f->C_GetSlotList(CK_TRUE, NULL, &p->nslots)) != CKR_OK) {
@@ -1604,15 +1637,13 @@ pkcs11_register_provider(char *provider_id, char *pin,
 			    "provider %s slot %lu", provider_id, (u_long)i);
 			continue;
 		}
-		rmspace(token->label, sizeof(token->label));
-		rmspace(token->manufacturerID, sizeof(token->manufacturerID));
-		rmspace(token->model, sizeof(token->model));
-		rmspace(token->serialNumber, sizeof(token->serialNumber));
-		debug("provider %s slot %lu: label <%s> manufacturerID <%s> "
-		    "model <%s> serial <%s> flags 0x%lx",
+		debug("provider %s slot %lu: label <%.*s> "
+		    "manufacturerID <%.*s> model <%.*s> serial <%.*s> "
+		    "flags 0x%lx",
 		    provider_id, (unsigned long)i,
-		    token->label, token->manufacturerID, token->model,
-		    token->serialNumber, token->flags);
+		    RMSPACE(token->label), RMSPACE(token->manufacturerID),
+		    RMSPACE(token->model), RMSPACE(token->serialNumber),
+		    token->flags);
 		/*
 		 * open session, login with pin and retrieve public
 		 * keys (if keyp is provided)

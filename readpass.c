@@ -1,4 +1,4 @@
-/* $OpenBSD: readpass.c,v 1.68 2020/11/10 07:46:20 claudio Exp $ */
+/* $OpenBSD: readpass.c,v 1.71 2024/03/30 04:27:44 djm Exp $ */
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
  *
@@ -117,7 +117,7 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
  * Reads a passphrase from /dev/tty with echo turned off/on.  Returns the
  * passphrase (allocated with xmalloc).  Exits if EOF is encountered. If
  * RP_ALLOW_STDIN is set, the passphrase will be read from stdin if no
- * tty is available
+ * tty is or askpass program is available
  */
 char *
 read_passphrase(const char *prompt, int flags)
@@ -127,8 +127,9 @@ read_passphrase(const char *prompt, int flags)
 	const char *askpass_hint = NULL;
 	const char *s;
 
-	if ((s = getenv("DISPLAY")) != NULL)
-		allow_askpass = *s != '\0';
+	if (((s = getenv("DISPLAY")) != NULL && *s != '\0') ||
+	    ((s = getenv("WAYLAND_DISPLAY")) != NULL && *s != '\0'))
+		allow_askpass = 1;
 	if ((s = getenv(SSH_ASKPASS_REQUIRE_ENV)) != NULL) {
 		if (strcasecmp(s, "force") == 0) {
 			use_askpass = 1;
@@ -146,7 +147,7 @@ read_passphrase(const char *prompt, int flags)
 		use_askpass = 1;
 	else if (flags & RP_ALLOW_STDIN) {
 		if (!isatty(STDIN_FILENO)) {
-			debug("read_passphrase: stdin is not a tty");
+			debug_f("stdin is not a tty");
 			use_askpass = 1;
 		}
 	} else {
@@ -162,7 +163,7 @@ read_passphrase(const char *prompt, int flags)
 			(void)write(ttyfd, &cr, 1);
 			close(ttyfd);
 		} else {
-			debug("read_passphrase: can't open %s: %s", _PATH_TTY,
+			debug_f("can't open %s: %s", _PATH_TTY,
 			    strerror(errno));
 			use_askpass = 1;
 		}
@@ -261,7 +262,7 @@ notify_start(int force_askpass, const char *fmt, ...)
 		debug3_f("cannot notify: no askpass");
 		goto out;
 	}
-	if (getenv("DISPLAY") == NULL &&
+	if (getenv("DISPLAY") == NULL && getenv("WAYLAND_DISPLAY") == NULL &&
 	    ((s = getenv(SSH_ASKPASS_REQUIRE_ENV)) == NULL ||
 	    strcmp(s, "force") != 0)) {
 		debug3_f("cannot notify: no display");
@@ -286,7 +287,8 @@ notify_start(int force_askpass, const char *fmt, ...)
 	}
  out_ctx:
 	if ((ret = calloc(1, sizeof(*ret))) == NULL) {
-		kill(pid, SIGTERM);
+		if (pid != -1)
+			kill(pid, SIGTERM);
 		fatal_f("calloc failed");
 	}
 	ret->pid = pid;

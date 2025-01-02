@@ -1,4 +1,4 @@
-/* $OpenBSD: kexsntrup761x25519.c,v 1.1 2020/12/29 00:59:15 djm Exp $ */
+/* $OpenBSD: kexsntrup761x25519.c,v 1.3 2024/09/15 02:20:51 djm Exp $ */
 /*
  * Copyright (c) 2019 Markus Friedl.  All rights reserved.
  *
@@ -38,6 +38,10 @@
 #include "sshbuf.h"
 #include "digest.h"
 #include "ssherr.h"
+
+volatile crypto_int16 crypto_int16_optblocker = 0;
+volatile crypto_int32 crypto_int32_optblocker = 0;
+volatile crypto_int64 crypto_int64_optblocker = 0;
 
 int
 kex_kem_sntrup761x25519_keypair(struct kex *kex)
@@ -132,7 +136,7 @@ kex_kem_sntrup761x25519_enc(struct kex *kex,
 	dump_digest("server public key 25519:", server_pub, CURVE25519_SIZE);
 	dump_digest("server cipher text:", ciphertext,
 	    crypto_kem_sntrup761_CIPHERTEXTBYTES);
-	dump_digest("server kem key:", kem_key, sizeof(kem_key));
+	dump_digest("server kem key:", kem_key, crypto_kem_sntrup761_BYTES);
 	dump_digest("concatenation of KEM key and ECDH shared key:",
 	    sshbuf_ptr(buf), sshbuf_len(buf));
 #endif

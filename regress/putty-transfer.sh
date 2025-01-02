@@ -1,12 +1,9 @@
-#	$OpenBSD: putty-transfer.sh,v 1.7 2020/01/23 11:19:12 dtucker Exp $
+#	$OpenBSD: putty-transfer.sh,v 1.12 2024/02/09 08:47:42 dtucker Exp $
 #	Placed in the Public Domain.
 
 tid="putty transfer data"
 
-if test "x$REGRESS_INTEROP_PUTTY" != "xyes" ; then
-	echo "putty interop tests not enabled"
-	exit 0
-fi
+puttysetup
 
 if [ "`${SSH} -Q compression`" = "none" ]; then
 	comp="0"

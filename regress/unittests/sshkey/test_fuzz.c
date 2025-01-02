@@ -1,4 +1,4 @@
-/* 	$OpenBSD: test_fuzz.c,v 1.12 2020/08/27 03:55:22 djm Exp $ */
+/* 	$OpenBSD: test_fuzz.c,v 1.14 2024/01/11 01:45:58 djm Exp $ */
 /*
  * Fuzz tests for key parsing
  *
@@ -8,7 +8,6 @@
 #include "includes.h"
 
 #include <sys/types.h>
-#include <sys/param.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -19,12 +18,14 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef WITH_OPENSSL
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
 #include <openssl/dsa.h>
 #include <openssl/objects.h>
 #ifdef OPENSSL_HAS_NISTP256
 # include <openssl/ec.h>
+#endif
 #endif
 
 #include "../test_helper/test_helper.h"
@@ -159,6 +160,7 @@ sshkey_fuzz_tests(void)
 	fuzz_cleanup(fuzz);
 	TEST_DONE();
 
+#ifdef WITH_DSA
 	TEST_START("fuzz DSA private");
 	buf = load_file("dsa_1");
 	fuzz = fuzz_begin(FUZZ_BASE64, sshbuf_mutable_ptr(buf),
@@ -202,6 +204,7 @@ sshkey_fuzz_tests(void)
 	sshbuf_free(fuzzed);
 	fuzz_cleanup(fuzz);
 	TEST_DONE();
+#endif
 
 #ifdef OPENSSL_HAS_ECC
 	TEST_START("fuzz ECDSA private");
@@ -287,6 +290,7 @@ sshkey_fuzz_tests(void)
 	sshkey_free(k1);
 	TEST_DONE();
 
+#ifdef WITH_DSA
 	TEST_START("fuzz DSA public");
 	buf = load_file("dsa_1");
 	ASSERT_INT_EQ(sshkey_parse_private_fileblob(buf, "", &k1, NULL), 0);
@@ -300,6 +304,7 @@ sshkey_fuzz_tests(void)
 	public_fuzz(k1);
 	sshkey_free(k1);
 	TEST_DONE();
+#endif
 
 #ifdef OPENSSL_HAS_ECC
 	TEST_START("fuzz ECDSA public");
@@ -357,6 +362,7 @@ sshkey_fuzz_tests(void)
 	sshkey_free(k1);
 	TEST_DONE();
 
+#ifdef WITH_DSA
 	TEST_START("fuzz DSA sig");
 	buf = load_file("dsa_1");
 	ASSERT_INT_EQ(sshkey_parse_private_fileblob(buf, "", &k1, NULL), 0);
@@ -364,6 +370,7 @@ sshkey_fuzz_tests(void)
 	sig_fuzz(k1, NULL);
 	sshkey_free(k1);
 	TEST_DONE();
+#endif
 
 #ifdef OPENSSL_HAS_ECC
 	TEST_START("fuzz ECDSA sig");

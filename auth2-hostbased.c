@@ -1,4 +1,4 @@
-/* $OpenBSD: auth2-hostbased.c,v 1.46 2021/01/27 10:05:28 djm Exp $ */
+/* $OpenBSD: auth2-hostbased.c,v 1.53 2024/05/17 00:30:23 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -40,7 +40,6 @@
 #include "log.h"
 #include "misc.h"
 #include "servconf.h"
-#include "compat.h"
 #include "sshkey.h"
 #include "hostfile.h"
 #include "auth.h"
@@ -55,9 +54,10 @@
 
 /* import */
 extern ServerOptions options;
+extern struct authmethod_cfg methodcfg_hostbased;
 
 static int
-userauth_hostbased(struct ssh *ssh)
+userauth_hostbased(struct ssh *ssh, const char *method)
 {
 	Authctxt *authctxt = ssh->authctxt;
 	struct sshbuf *b;
@@ -101,15 +101,9 @@ userauth_hostbased(struct ssh *ssh)
 		    "(received %d, expected %d)", key->type, pktype);
 		goto done;
 	}
-	if (sshkey_type_plain(key->type) == KEY_RSA &&
-	    (ssh->compat & SSH_BUG_RSASIGMD5) != 0) {
-		error("Refusing RSA key because peer uses unsafe "
-		    "signature format");
-		goto done;
-	}
 	if (match_pattern_list(pkalg, options.hostbased_accepted_algos, 0) != 1) {
-		logit_f("key type %s not in HostbasedAcceptedAlgorithms",
-		    sshkey_type(key));
+		logit_f("signature algorithm %s not in "
+		    "HostbasedAcceptedAlgorithms", pkalg);
 		goto done;
 	}
 	if ((r = sshkey_check_cert_sigtype(key,
@@ -117,6 +111,11 @@ userauth_hostbased(struct ssh *ssh)
 		logit_fr(r, "certificate signature algorithm %s",
 		    (key->cert == NULL || key->cert->signature_type == NULL) ?
 		    "(null)" : key->cert->signature_type);
+		goto done;
+	}
+	if ((r = sshkey_check_rsa_length(key,
+	    options.required_rsa_size)) != 0) {
+		logit_r(r, "refusing %s key", sshkey_type(key));
 		goto done;
 	}
 
@@ -132,7 +131,7 @@ userauth_hostbased(struct ssh *ssh)
 	    (r = sshbuf_put_u8(b, SSH2_MSG_USERAUTH_REQUEST)) != 0 ||
 	    (r = sshbuf_put_cstring(b, authctxt->user)) != 0 ||
 	    (r = sshbuf_put_cstring(b, authctxt->service)) != 0 ||
-	    (r = sshbuf_put_cstring(b, "hostbased")) != 0 ||
+	    (r = sshbuf_put_cstring(b, method)) != 0 ||
 	    (r = sshbuf_put_string(b, pkalg, alen)) != 0 ||
 	    (r = sshbuf_put_string(b, pkblob, blen)) != 0 ||
 	    (r = sshbuf_put_cstring(b, chost)) != 0 ||
@@ -147,10 +146,10 @@ userauth_hostbased(struct ssh *ssh)
 
 	/* test for allowed key and correct signature */
 	authenticated = 0;
-	if (PRIVSEP(hostbased_key_allowed(ssh, authctxt->pw, cuser,
-	    chost, key)) &&
-	    PRIVSEP(sshkey_verify(key, sig, slen,
-	    sshbuf_ptr(b), sshbuf_len(b), pkalg, ssh->compat, NULL)) == 0)
+	if (mm_hostbased_key_allowed(ssh, authctxt->pw, cuser,
+	    chost, key) &&
+	    mm_sshkey_verify(key, sig, slen,
+	    sshbuf_ptr(b), sshbuf_len(b), pkalg, ssh->compat, NULL) == 0)
 		authenticated = 1;
 
 	auth2_record_key(authctxt, authenticated, key);
@@ -213,7 +212,7 @@ hostbased_key_allowed(struct ssh *ssh, struct passwd *pw,
 	debug2_f("access allowed by auth_rhosts2");
 
 	if (sshkey_is_cert(key) &&
-	    sshkey_cert_check_authority(key, 1, 0, 0, lookup, &reason)) {
+	    sshkey_cert_check_authority_now(key, 1, 0, 0, lookup, &reason)) {
 		error("%s", reason);
 		auth_debug_add("%s", reason);
 		return 0;
@@ -254,7 +253,6 @@ hostbased_key_allowed(struct ssh *ssh, struct passwd *pw,
 }
 
 Authmethod method_hostbased = {
-	"hostbased",
+	&methodcfg_hostbased,
 	userauth_hostbased,
-	&options.hostbased_authentication
 };
